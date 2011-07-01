@@ -16,6 +16,26 @@ describe SerialFile do
     end
   end
 
+  it "should successfully pass through enough data to loop over the file 3 or more times" do
+    data_size = 16777216 * 3
+    min_num_loops = data_size / 4096
+    data = "abcd123" * 1024
+
+    begin
+      tmp = Tempfile.new("foo")
+      sender = SerialFile.sender(tmp.path)
+      receiver = SerialFile.receiver(tmp.path)
+      min_num_loops.should > 0
+
+      min_num_loops.times do
+        sender.puts(data)
+        receiver.sysread(data.length).should == data
+      end
+    ensure
+      tmp.unlink
+    end
+  end
+
   describe "file format" do
 
     # File format is 4096 byte blocks with 4 byte header and 4092 byte data

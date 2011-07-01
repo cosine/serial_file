@@ -140,8 +140,8 @@ class SerialFile::Receiver
   def sysread (num_bytes)
     buffer = ""
     while buffer.length < num_bytes do
-      wait_for_block_to_read(num_bytes)
-      buffer << block_read(block_bytes_waiting_for_read)
+      wait_for_block_to_read(num_bytes - buffer.length)
+      buffer << block_read(@block_bytes_waiting_for_read)
     end
     buffer
   end
@@ -186,7 +186,7 @@ class SerialFile::Receiver
     data_serial, new_pos = data.unpack("nn")
     if @block_serial == data_serial && data != @last_block_header
       @last_block_header = data
-      return new_pos - @block_pos
+      return @block_bytes_waiting_for_read = new_pos - @block_pos
     end
     0
   end
