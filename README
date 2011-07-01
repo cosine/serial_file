@@ -1,0 +1,25 @@
+#
+# Copyright (c) 2011, Michael H. Buselli
+# See LICENSE for details.  All other rights reserved.
+#
+
+=======
+
+Installation:
+
+    gem install serial_file
+
+=======
+
+The serial_file library provides a pipe between two processes that can
+only share read-write access to the same file.  You should use normal
+inter-process communication APIs if you have other means of getting two
+processes to communicate.
+
+As presently written, the file must be able to be 16 megabytes in size,
+and only that number of bytes is actually used.  The file will be
+utterly trashed by this library, so only use a file dedicated for this
+purpose.
+
+I have not written documentation yet.  Check the RSpec file for some
+quick examples on how to use this program.
