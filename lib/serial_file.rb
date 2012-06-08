@@ -47,6 +47,14 @@ module SerialFile::IO
   def block_seek
     @f.pos = @block * BLOCK_SIZE + @block_pos
   end
+
+  # Front end to @f.sysread to guarantee the file exists and has all its data.
+  def f_sysread (num_bytes)
+    @f.sysread(num_bytes)
+  rescue EOFError
+    sleep POLL_INTERVAL
+    retry
+  end
 end
 
 class SerialFile::Sender
@@ -112,7 +120,7 @@ class SerialFile::Sender
   def wait_for_block_to_write
     loop do
       block_rewind
-      data = @f.sysread(4)
+      data = f_sysread(4)
       return if data == "\0\0\0\0"
       sleep POLL_INTERVAL
     end
@@ -127,22 +135,37 @@ class SerialFile::Receiver
     @last_block_header = "\0\0\0\0"
   end
 
+  # The difference between #readpartial and #sysread is that sysread
+  # will block when waiting for all of +num_bytes+ bytes, while
+  # readpartial will only block if there is no data yet available at
+  # all.
+
   def readpartial (num_bytes)
     buffer = ""
     loop do
       bytes_ready = block_bytes_waiting_for_read
       bytes_to_read = num_bytes < bytes_ready ? num_bytes : bytes_ready
-      return buffer if bytes_to_read.zero?
+      if bytes_to_read.zero?
+        @last_block_header = nil
+        return buffer
+      end
       buffer << block_read(bytes_to_read)
     end
   end
 
   def sysread (num_bytes)
     buffer = ""
-    while buffer.length < num_bytes do
-      wait_for_block_to_read(num_bytes - buffer.length)
-      buffer << block_read(@block_bytes_waiting_for_read)
+    bytes_remaining = num_bytes
+
+    while bytes_remaining > 0 do
+      wait_for_block_to_read(bytes_remaining)
+      bytes_ready = @block_bytes_waiting_for_read
+      bytes_to_read = bytes_remaining < bytes_ready ? bytes_remaining : bytes_ready
+      buffer << block_read(bytes_to_read)
+      bytes_remaining = num_bytes - buffer.length
     end
+
+    @last_block_header = nil
     buffer
   end
 
@@ -153,7 +176,7 @@ class SerialFile::Receiver
   # block_bytes_waiting_for_read to ensure availability).
   def block_read (num_bytes)
     block_seek
-    data = @f.sysread(num_bytes)
+    data = f_sysread(num_bytes)
     @block_pos += data.length
     raise "block overread error" if @block_pos > BLOCK_SIZE
     next_block if @block_pos == BLOCK_SIZE
@@ -182,7 +205,7 @@ class SerialFile::Receiver
   # reading.
   def block_bytes_waiting_for_read
     block_rewind
-    data = @f.sysread(4)
+    data = f_sysread(4)
     data_serial, new_pos = data.unpack("nn")
     if @block_serial == data_serial && data != @last_block_header
       @last_block_header = data

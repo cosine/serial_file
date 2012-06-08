@@ -3,36 +3,134 @@ require "tempfile"
 
 describe SerialFile do
 
-  # Basic smoke test.
-  it "should send data to the other end" do
-    begin
-      tmp = Tempfile.new("foo")
-      sender = SerialFile.sender(tmp.path)
-      receiver = SerialFile.receiver(tmp.path)
-      sender.puts("Hello World")
-      receiver.readpartial(1024).should == "Hello World\n"
-    ensure
-      tmp.unlink
+  describe "#readpartial" do
+    it "should read only the number of bytes requested" do
+      begin
+        tmp = Tempfile.new("serial_file_rspec")
+        sender = SerialFile.sender(tmp.path)
+        receiver = SerialFile.receiver(tmp.path)
+        sender.puts("Hello World")
+        receiver.readpartial(5).should == "Hello"
+      ensure
+        tmp.unlink
+      end
+    end
+
+    it "should block when there is no bytes available"
+
+    it "should read all available data if only some data is available" do
+      begin
+        tmp = Tempfile.new("serial_file_rspec")
+        sender = SerialFile.sender(tmp.path)
+        receiver = SerialFile.receiver(tmp.path)
+        sender.puts("Hello World")
+        receiver.readpartial(20).should == "Hello World\n"
+      ensure
+        tmp.unlink
+      end
     end
   end
 
-  it "should successfully pass through enough data to loop over the file 3 or more times" do
-    data_size = 16777216 * 3
-    min_num_loops = data_size / 4096
-    data = "abcd123" * 1024
-
-    begin
-      tmp = Tempfile.new("foo")
-      sender = SerialFile.sender(tmp.path)
-      receiver = SerialFile.receiver(tmp.path)
-      min_num_loops.should > 0
-
-      min_num_loops.times do
-        sender.puts(data)
-        receiver.sysread(data.length).should == data
+  describe "#sysread" do
+    it "should read only the number of bytes requested" do
+      begin
+        tmp = Tempfile.new("serial_file_rspec")
+        sender = SerialFile.sender(tmp.path)
+        receiver = SerialFile.receiver(tmp.path)
+        sender.puts("Hello World")
+        receiver.sysread(5).should == "Hello"
+      ensure
+        tmp.unlink
       end
-    ensure
-      tmp.unlink
+    end
+
+    it "should block when there is no bytes available"
+
+    it "should block when only some data is available"
+  end
+
+  # Basic smoke test in a single process.
+  describe "single process" do
+    it "should send data to the other end" do
+      begin
+        tmp = Tempfile.new("serial_file_rspec")
+        sender = SerialFile.sender(tmp.path)
+        receiver = SerialFile.receiver(tmp.path)
+        sender.puts("Hello World")
+        receiver.readpartial(1024).should == "Hello World\n"
+      ensure
+        tmp.unlink
+      end
+    end
+
+    it "should successfully pass through enough data to loop over the file 3 or more times" do
+      data_size = 16777216 * 3
+      min_num_loops = data_size / 4096
+      data = "abc123\n" * 1024
+
+      begin
+        tmp = Tempfile.new("serial_file_rspec")
+        sender = SerialFile.sender(tmp.path)
+        receiver = SerialFile.receiver(tmp.path)
+        min_num_loops.should > 0
+
+        min_num_loops.times do
+          sender.puts(data)
+          receiver.sysread(data.length).should == data
+        end
+      ensure
+        tmp.unlink
+      end
+    end
+  end
+
+  # The previous tests all work in the same process.  This series of tests
+  # verify the scheme works when using multiple processes.
+  describe "multiple processes" do
+    it "should send data to the other process" do
+      begin
+        tmp = Tempfile.new("serial_file_rspec")
+
+        sender_pid = fork do
+          sender = SerialFile.sender(tmp.path)
+          sender.puts("Hello World")
+        end
+        Process.waitpid(sender_pid)
+
+        receiver = SerialFile.receiver(tmp.path)
+        receiver.readpartial(1024).should == "Hello World\n"
+      ensure
+        tmp.unlink
+      end
+    end
+
+    it "should successfully pass through enough data to loop over the file 3 or more times" do
+      data_size = 16777216 * 3
+      min_num_loops = data_size / 4096
+      data = "abc123\n" * 1024
+
+      begin
+        tmp = Tempfile.new("serial_file_rspec")
+        min_num_loops.should > 0
+
+        sender_pid = fork do
+          sender = SerialFile.sender(tmp.path)
+          min_num_loops.times { sender.puts(data) }
+        end
+
+        receiver = SerialFile.receiver(tmp.path)
+        min_num_loops.times do
+          buffer = ""
+          while buffer.length < data.length
+            buffer << receiver.sysread(data.length - buffer.length)
+          end
+          buffer.should == data
+        end
+
+        Process.waitpid(sender_pid)
+      ensure
+        tmp.unlink
+      end
     end
   end
 
@@ -53,7 +151,7 @@ describe SerialFile do
 
     it "should write out a block number and byte count with data" do
       begin
-        tmp = Tempfile.new("foo")
+        tmp = Tempfile.new("serial_file_rspec")
         sender = SerialFile.sender(tmp.path)
         sender.puts("Hello World")
         tmp.sysread(17).should == [1, 16, "Hello World\n"].pack("nnZ*")
@@ -64,7 +162,7 @@ describe SerialFile do
 
     it "should write to two blocks if the data exceeds space in first block" do
       begin
-        tmp = Tempfile.new("foo")
+        tmp = Tempfile.new("serial_file_rspec")
         sender = SerialFile.sender(tmp.path)
         sender.print("A" * 4096)
         tmp.sysread(4096 + 9).should == [1, 4096, "A" * 4092, 2, 8, "A" * 4].pack("nna*nnZ*")
@@ -75,7 +173,7 @@ describe SerialFile do
 
     it "should read some data from a block" do
       begin
-        tmp = Tempfile.new("foo")
+        tmp = Tempfile.new("serial_file_rspec")
         tmp.print([1, 16, "Hello World\n"].pack("nnZ*"))
         tmp.flush
         receiver = SerialFile.receiver(tmp.path)
@@ -87,7 +185,7 @@ describe SerialFile do
 
     it "should read data from two blocks if data exceeds space in first block" do
       begin
-        tmp = Tempfile.new("foo")
+        tmp = Tempfile.new("serial_file_rspec")
         tmp.print([1, 4096, "A" * 4092, 2, 8, "A" * 4].pack("nna*nnZ*"))
         tmp.flush
         receiver = SerialFile.receiver(tmp.path)
