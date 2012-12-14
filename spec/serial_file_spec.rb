@@ -1,5 +1,6 @@
 require "serial_file"
 require "tempfile"
+require "rspec_block"
 
 describe SerialFile do
 
@@ -16,7 +17,16 @@ describe SerialFile do
       end
     end
 
-    it "should block when there is no bytes available"
+    it "should block when there are no bytes available" do
+      begin
+        tmp = Tempfile.new("serial_file_rspec")
+        sender = SerialFile.sender(tmp.path)
+        receiver = SerialFile.receiver(tmp.path)
+        lambda { receiver.readpartial(1) }.should stoppy(2)
+      ensure
+        tmp.unlink
+      end
+    end
 
     it "should read all available data if only some data is available" do
       begin
@@ -44,9 +54,27 @@ describe SerialFile do
       end
     end
 
-    it "should block when there is no bytes available"
+    it "should block when there are no bytes available" do
+      begin
+        tmp = Tempfile.new("serial_file_rspec")
+        sender = SerialFile.sender(tmp.path)
+        receiver = SerialFile.receiver(tmp.path)
+        lambda { receiver.sysread(1) }.should stoppy(2)
+      ensure
+        tmp.unlink
+      end
+    end
 
     it "should block when only some data is available"
+      begin
+        tmp = Tempfile.new("serial_file_rspec")
+        sender = SerialFile.sender(tmp.path)
+        receiver = SerialFile.receiver(tmp.path)
+        sender.puts("Hello World")
+        lambda { receiver.sysread(5) }.should stoppy(2)
+      ensure
+        tmp.unlink
+      end
   end
 
   # Basic smoke test in a single process.

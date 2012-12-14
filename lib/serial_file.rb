@@ -169,6 +169,29 @@ class SerialFile::Receiver
     buffer
   end
 
+  def readpartial2 (num_bytes)
+    buffer = ""
+    remaining = num_bytes
+    while remaining > 0 do
+      block_prime
+      return buffer if buffer.length > 0 && block_buffer_empty?
+      buffer << block_read(num_bytes - buffer.length)
+      remaining = num_bytes - buffer.length
+    end
+    buffer
+  end
+
+  def sysread2 (num_bytes)
+    buffer = ""
+    remaining = num_bytes
+    while remaining > 0 do
+      block_prime
+      buffer << block_read(num_bytes - buffer.length)
+      remaining = num_bytes - buffer.length
+    end
+    buffer
+  end
+
   private
 
   # Kind of like sysread, but num_bytes must read only from the current block
